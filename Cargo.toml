@@ -1,0 +1,26 @@
+[package]
+name = "full-auto-supercut"
+version = "0.1.0"
+edition = "2024"
+description = "Point it at a folder of videos, get a supercut of whatever someone keeps saying."
+license = "MIT"
+repository = "https://github.com/Fallstop/full-auto-supercut"
+authors = ["Jasper Miller-Waugh"]
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+rayon = "1.12.0"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+whisper-rs = "0.16.0"
+
+[features]
+default = []
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
+metal = ["whisper-rs/metal"]
+
+[profile.release]
+lto = "thin"
