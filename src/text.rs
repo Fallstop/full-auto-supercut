@@ -38,6 +38,28 @@ pub fn tokens(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Does this raw word (with whisper's punctuation) end a sentence?
+pub fn ends_sentence(raw: &str) -> bool {
+    raw.trim_end().ends_with(['.', '?', '!'])
+}
+
+/// A phrase spoken across a sentence boundary ("..., right? So, ...") isn't one utterance: it has
+/// a pause in the middle and doesn't clip cleanly. Repeats ("Yeah. Yeah. Yeah.") are the exception.
+pub fn crosses_sentence(raw: &[&str]) -> bool {
+    let crosses = raw[..raw.len().saturating_sub(1)]
+        .iter()
+        .any(|w| ends_sentence(w));
+    crosses && raw.iter().any(|w| norm(w) != norm(raw[0]))
+}
+
+/// Normalised tokens plus the raw words they came from (for punctuation).
+pub fn tokens_with_raw(text: &str) -> Vec<(String, &str)> {
+    text.split_whitespace()
+        .map(|w| (norm(w), w))
+        .filter(|(t, _)| !t.is_empty())
+        .collect()
+}
+
 pub fn words_path(dir: &Path, id: &str) -> std::path::PathBuf {
     dir.join(format!("{id}.json"))
 }

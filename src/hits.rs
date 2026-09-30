@@ -1,7 +1,7 @@
 use crate::asr::Asr;
 use crate::audio;
 use crate::library::Recording;
-use crate::text::{Word, norm, tokens};
+use crate::text::{Word, crosses_sentence, norm, tokens};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +33,10 @@ pub fn find(phrase: &str, id: &str, words: &[Word], pre: f64, post: f64) -> Vec<
             continue;
         }
         let j = i + toks.len();
+        let raw: Vec<&str> = words[i..j].iter().map(|w| w.w.as_str()).collect();
+        if crosses_sentence(&raw) {
+            continue;
+        }
         let mut s = words[i].s - pre;
         let mut e = words[j - 1].e + post;
         if i > 0 {
@@ -65,29 +69,21 @@ pub fn find(phrase: &str, id: &str, words: &[Word], pre: f64, post: f64) -> Vec<
     hits
 }
 
-/// Padding adjustments (start, end) tried in order until the clip sounds right.
-const TRIES: &[(f64, f64)] = &[
-    (0.0, 0.0),
-    (-0.1, 0.1),
-    (0.06, 0.0),
-    (0.0, -0.06),
-    (-0.2, 0.25),
-    (0.1, 0.05),
-    (0.16, 0.0),
-    (-0.3, 0.35),
-];
-
-/// If a clip transcript contains the phrase and (almost) nothing else, how many stray words it has.
-fn stray_words(heard: &[String], phrase: &[String], n: usize, dur: f64) -> Option<usize> {
-    let found = heard.windows(phrase.len()).any(|w| w == phrase);
-    let extra = heard.iter().filter(|t| !phrase.contains(t)).count();
-    let fits = heard.len() <= (n + 1) * phrase.len() + 1 && dur <= 2.5 + 1.5 * n as f64;
-    (found && extra <= 1 && fits).then_some(extra)
+/// Where the phrase sits in a clip transcript: (words before its first occurrence, words after
+/// its last occurrence), or None if it isn't there.
+fn locate(heard: &[String], phrase: &[String]) -> Option<(usize, usize)> {
+    let at: Vec<usize> = (0..=heard.len().saturating_sub(phrase.len()))
+        .filter(|&i| heard.get(i..i + phrase.len()) == Some(phrase))
+        .collect();
+    Some((*at.first()?, heard.len() - at.last()? - phrase.len()))
 }
 
-/// Re-transcribe each clip window on its own and nudge the padding until whisper hears exactly the
-/// phrase. A window with one stray word ("it's some sort of") is only used if no window is clean;
-/// if nothing passes, the hit is dropped. Catches mistimed words and mis-recognitions.
+const MAX_TRIES: usize = 8;
+
+/// Re-transcribe each clip window on its own and steer the window until whisper hears exactly the
+/// phrase: stray words after it pull the end in, stray words before it push the start later, and a
+/// phrase that isn't (fully) heard widens the window. A window with one stray word is only used if
+/// no clean window turns up; if nothing passes, the hit is dropped.
 pub fn verify(
     asr: &Asr,
     recs: &[Recording],
@@ -102,25 +98,45 @@ pub fn verify(
             .iter()
             .find(|r| r.id == h.id)
             .expect("hit for unknown recording");
+        // Long internal pauses ("right? ... so") drag, so cap the clip relative to the phrase length.
+        let max_dur = h.n as f64 * (0.5 + 0.55 * want.len() as f64) + 0.3 * (h.n - 1) as f64;
+        let (s0, e0) = (h.s, h.e);
+        let (mut s, mut e) = (s0, e0);
         let mut last = String::new();
         let mut best: Option<(f64, f64, String)> = None;
-        for &(ds, de) in TRIES {
-            let (s, e) = ((h.s + ds).max(0.0), h.e + de);
-            if e - s < 0.1 {
-                continue;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..MAX_TRIES {
+            s = s.clamp((s0 - 0.4).max(0.0), s0 + 0.35);
+            e = e.clamp(e0 - 0.5, e0 + 0.45);
+            if e - s < 0.15
+                || e - s > max_dur
+                || !seen.insert(((s * 100.0) as i64, (e * 100.0) as i64))
+            {
+                break;
             }
             let mut pcm = vec![0.0f32; 8000];
             pcm.extend(audio::decode(&rec.video, Some((s, e - s)))?);
             pcm.extend(std::iter::repeat_n(0.0, 8000));
             last = asr.text(&pcm)?;
-            match stray_words(&tokens(&last), &want, h.n, e - s) {
-                Some(0) => {
-                    best = Some((s, e, last.clone()));
-                    break;
-                }
-                Some(_) if best.is_none() => best = Some((s, e, last.clone())),
-                _ => {}
+            let heard = tokens(&last);
+            let Some((before, after)) = locate(&heard, &want) else {
+                (s, e) = (s - 0.1, e + 0.12);
+                continue;
+            };
+            let extra = heard.iter().filter(|t| !want.contains(t)).count();
+            let fits = heard.len() <= (h.n + 1) * want.len() + 1;
+            if extra == 0 && fits {
+                best = Some((s, e, last.clone()));
+                break;
             }
+            if extra <= 1 && fits && best.is_none() {
+                best = Some((s, e, last.clone()));
+            }
+            if before == 0 && after == 0 {
+                break; // stray words are in the middle; trimming won't help
+            }
+            s += 0.08 * before.min(3) as f64;
+            e -= 0.1 * after.min(3) as f64;
         }
         let ok = best.is_some();
         if let Some((s, e, heard)) = best {

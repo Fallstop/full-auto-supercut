@@ -11,7 +11,7 @@ That one command:
 1. **Transcribes** every video locally with Whisper (`large-v3-turbo` via whisper.cpp), with word-level timestamps.
 2. **Mines catchphrases**: it finds the phrases one speaker leans on far more than everyone else ("you know", "this guy", "some sort of").
 3. **Cuts every occurrence** with a little padding and merges back-to-back repeats ("this guy, this guy").
-4. **Verifies every clip** by re-transcribing just that clip. If Whisper doesn't hear exactly the phrase, it nudges the padding and tries again, and drops the clip if it still fails. That removes misheard or mistimed clips and chatter bleeding in from neighbouring words.
+4. **Verifies every clip** by re-transcribing just that clip and steering the window until Whisper hears exactly the phrase. Stray words after the phrase pull the end in, stray words before it push the start later, and a half-heard phrase widens the window. Clips that never come out clean, or that drag (long pauses mid-phrase), are dropped.
 5. **Renders two cuts** in parallel with ffmpeg:
    - `<phrase>_supercut.mp4`: title card, a running `#N` counter, a date/recording label on each clip, and an end card with the total.
    - `<phrase>_supercut_clean.mp4`: just the clips, back to back.
@@ -34,6 +34,7 @@ A verbal tic is something one speaker overuses compared with everyone else, so "
 - The phrase has to be a **habit**, appearing in at least 3 recordings. One-offs like a fire-alarm announcement or a video played in class don't count.
 - It has to be made of **everyday spoken words**, so topic jargon that clusters in a few recordings doesn't pass for a tic.
 - Phrases containing a **filler or discourse marker** ("right", "okay", "guys", "you know", "sort of") get a bonus over grammatical glue ("so you", "you need"). This matters most when one person does all the talking, so there's nobody to compare against and lift is flat.
+- It has to be **one utterance**. Phrases that run across a sentence boundary ("…, right? So, …") are ignored, because they have a pause in the middle and never clip cleanly. Repeats like "Yeah. Yeah. Yeah." are the exception.
 - The most complete form of a phrase wins: "some sort of" beats "sort of".
 
 Whisper invents text over silence, so there are three guards against it:

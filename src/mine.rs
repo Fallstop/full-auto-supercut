@@ -10,7 +10,7 @@
 //! - phrases with a filler or discourse marker ("right", "you know", "sort of") get a bonus over
 //!   grammatical glue ("so you"), which matters most when one speaker dominates and lift is flat.
 
-use crate::text::tokens;
+use crate::text::{ends_sentence, tokens_with_raw};
 use std::collections::{HashMap, HashSet};
 
 /// Words that make an n-gram look like a fragment when they sit at either edge of it.
@@ -57,10 +57,51 @@ ya yeah yep yes yet you you'd you'll you're you've your yourself";
 
 /// Filler words and discourse markers: a phrase containing one of these gets a bonus.
 const FILLERS: &[&str] = &[
-    "right", "okay", "ok", "alright", "yeah", "yep", "like", "basically", "actually", "literally", "guys",
-    "guy", "folks", "know", "sort", "kind", "kinda", "stuff", "thing", "whatever", "gonna", "um", "uh", "er",
-    "cool", "awesome", "perfect", "beautiful", "magic", "crazy", "obviously", "essentially", "honestly",
-    "anyway", "wow", "oops", "hmm", "huh", "bit", "bunch", "mean", "totally", "super", "pretty", "eh",
+    "right",
+    "okay",
+    "ok",
+    "alright",
+    "yeah",
+    "yep",
+    "like",
+    "basically",
+    "actually",
+    "literally",
+    "guys",
+    "guy",
+    "folks",
+    "know",
+    "sort",
+    "kind",
+    "kinda",
+    "stuff",
+    "thing",
+    "whatever",
+    "gonna",
+    "um",
+    "uh",
+    "er",
+    "cool",
+    "awesome",
+    "perfect",
+    "beautiful",
+    "magic",
+    "crazy",
+    "obviously",
+    "essentially",
+    "honestly",
+    "anyway",
+    "wow",
+    "oops",
+    "hmm",
+    "huh",
+    "bit",
+    "bunch",
+    "mean",
+    "totally",
+    "super",
+    "pretty",
+    "eh",
 ];
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -75,13 +116,29 @@ pub struct Candidate {
     pub per_recording: Vec<usize>,
 }
 
-pub fn mine(docs: &[Vec<String>], max_n: usize, min_count: usize) -> Vec<Candidate> {
+/// A recording's tokens, and whether each one ends a sentence.
+pub struct Doc {
+    pub toks: Vec<String>,
+    pub ends: Vec<bool>,
+}
+
+impl Doc {
+    fn len(&self) -> usize {
+        self.toks.len()
+    }
+}
+
+pub fn mine(docs: &[Doc], max_n: usize, min_count: usize) -> Vec<Candidate> {
     let totals: Vec<f64> = docs.iter().map(|d| d.len().max(1) as f64).collect();
     let k = docs.len();
     let mut counts: HashMap<String, Vec<usize>> = HashMap::new();
     for n in 1..=max_n {
         for (di, d) in docs.iter().enumerate() {
-            for g in d.windows(n) {
+            for (i, g) in d.toks.windows(n).enumerate() {
+                let repeat = g.iter().all(|t| *t == g[0]);
+                if !repeat && d.ends[i..i + n - 1].iter().any(|&e| e) {
+                    continue; // spans a sentence boundary
+                }
                 if n == 1 && (BORING.contains(&g[0].as_str()) || g[0].len() < 3) {
                     continue;
                 }
@@ -139,7 +196,11 @@ pub fn mine(docs: &[Vec<String>], max_n: usize, min_count: usize) -> Vec<Candida
             let length_bonus = [0.0, 0.6, 1.0, 1.1, 1.1][n.min(4)];
             // Fillers and discourse markers are what make a supercut funny; pure grammatical glue
             // ("so you", "you need") isn't, even when one speaker says it a lot.
-            let filler = if phrase.split(' ').any(|t| FILLERS.contains(&t)) { 1.6 } else { 0.6 };
+            let filler = if phrase.split(' ').any(|t| FILLERS.contains(&t)) {
+                1.6
+            } else {
+                0.6
+            };
             let score = hc.sqrt() * (1.0 + lift).ln() * length_bonus * filler;
             Some(Candidate {
                 phrase,
@@ -177,6 +238,15 @@ pub fn mine(docs: &[Vec<String>], max_n: usize, min_count: usize) -> Vec<Candida
     out
 }
 
-pub fn docs_from_text(texts: &[String]) -> Vec<Vec<String>> {
-    texts.iter().map(|t| tokens(t)).collect()
+pub fn docs_from_text(texts: &[String]) -> Vec<Doc> {
+    texts
+        .iter()
+        .map(|t| {
+            let tw = tokens_with_raw(t);
+            Doc {
+                ends: tw.iter().map(|(_, raw)| ends_sentence(raw)).collect(),
+                toks: tw.into_iter().map(|(t, _)| t).collect(),
+            }
+        })
+        .collect()
 }
