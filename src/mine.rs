@@ -55,6 +55,8 @@ upon us use used very wait want wanted wants was wasn't way we we'll we're we've
 when where whether which while who whole why will wish with without won't wonder work works world would wouldn't wow
 ya yeah yep yes yet you you'd you'll you're you've your yourself";
 
+const HESITATIONS: &[&str] = &["um", "uh", "er", "erm", "ah", "hmm", "mm"];
+
 /// Filler words and discourse markers: a phrase containing one of these gets a bonus.
 const FILLERS: &[&str] = &[
     "right",
@@ -193,6 +195,14 @@ pub fn mine(docs: &[Doc], max_n: usize, min_count: usize) -> Vec<Candidate> {
             } else {
                 1.0
             };
+            // "the um", "uh so": a hesitation glued to whatever came next isn't a catchphrase.
+            let toks: Vec<&str> = phrase.split(' ').collect();
+            if n > 1
+                && toks.iter().any(|t| HESITATIONS.contains(t))
+                && toks.iter().any(|t| *t != toks[0])
+            {
+                return None;
+            }
             let length_bonus = [0.0, 0.6, 1.0, 1.1, 1.1][n.min(4)];
             // Fillers and discourse markers are what make a supercut funny; pure grammatical glue
             // ("so you", "you need") isn't, even when one speaker says it a lot.

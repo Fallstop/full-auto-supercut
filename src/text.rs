@@ -19,16 +19,28 @@ const CONTRACTIONS: &[&str] = &[
 /// Lowercase, strip punctuation, and fold possessive `'s` so "guy's" matches "guy"
 /// (but leave contractions like "let's" alone).
 pub fn norm(w: &str) -> String {
-    let s: String = w
-        .to_lowercase()
-        .replace('\u{2019}', "'")
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '\'')
-        .collect();
+    let s = norm_exact(w);
     if CONTRACTIONS.contains(&s.as_str()) {
         return s;
     }
     s.strip_suffix("'s").map(String::from).unwrap_or(s)
+}
+
+/// Lowercase and strip punctuation, but keep possessives: sentence building needs "lecturer"
+/// and "lecturer's" to stay different words, since you can hear the difference.
+pub fn norm_exact(w: &str) -> String {
+    w.to_lowercase()
+        .replace('\u{2019}', "'")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '\'')
+        .collect()
+}
+
+pub fn tokens_exact(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(norm_exact)
+        .filter(|t| !t.is_empty())
+        .collect()
 }
 
 pub fn tokens(text: &str) -> Vec<String> {

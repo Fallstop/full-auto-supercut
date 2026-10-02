@@ -3,10 +3,41 @@
 Point it at a folder of videos and get back a supercut of whatever someone keeps saying.
 
 ```sh
-full-auto-supercut full-auto ~/Videos/lectures -o out/
+full-auto-supercut ~/Videos/lectures          # interactive TUI
+full-auto-supercut full-auto ~/Videos/lectures -o out/   # no questions asked
 ```
 
-That one command:
+## Say anything
+
+Type a sentence and the recordings say it back to you, stitched together from words that were actually spoken.
+
+```sh
+full-auto-supercut say ~/Videos/lectures "please do not use chatgpt for the assignment" --captions
+```
+
+- **Live:** in the TUI, every word lights up as you type if someone said it somewhere in the recordings. Words never said turn red, with "did you mean" suggestions from words that were said.
+- **Whole phrases first:** the sentence is covered with the *fewest, longest* runs of words that were really spoken in a row ("you guys should" + "start" + "the assignment" + "early"). A real phrase sounds far more natural than spliced single words.
+- **Picks the clearest take** of each piece. Takes are scored on how confidently they were recognised, whether there's a pause on both sides (so the cut doesn't clip a neighbouring word) and a plausible speaking rate, with a nudge toward staying in the same recording so the voice stays consistent.
+- **Checks every piece** by re-transcribing it, requiring an exact match ("lecturer's" won't pass for "lecturer"). It falls back to other takes, and if a long piece has no clean take, it splits it into smaller pieces that do.
+- **Levels the volume** of each piece, adds a beat of breathing room between them, and can burn in captions.
+
+## TUI
+
+```
+full-auto-supercut ~/Videos/lectures
+```
+
+| Tab | |
+|---|---|
+| **F1 Catchphrases** | ranked candidates with count, lift and a per-recording sparkline (you can see who says what). Type any phrase to see its live count; Enter renders the supercut |
+| **F2 Say anything** | type a sentence; ↑↓ pick a piece, Tab cycles its takes, Ctrl+P previews a take, Enter builds and plays it |
+| **F3 Recordings** | transcription status per recording; Enter plays it, Ctrl+T transcribes anything pending |
+
+Ctrl+V toggles verification, Ctrl+K captions, Ctrl+A autoplay, and Ctrl+O replays the last output. Long jobs run in the background with a progress bar and live log. Playback uses `mpv`, then `ffplay`, then `xdg-open`.
+
+## Full auto
+
+`full-auto` does the whole supercut pipeline in one go:
 
 1. **Transcribes** every video locally with Whisper (`large-v3-turbo` via whisper.cpp), with word-level timestamps.
 2. **Mines catchphrases**: it finds the phrases one speaker leans on far more than everyone else ("you know", "this guy", "some sort of").
@@ -47,7 +78,9 @@ Whisper invents text over silence, so there are three guards against it:
 
 | | |
 |---|---|
-| `full-auto <dir>` | everything above; `--pick N` takes the Nth-ranked phrase instead |
+| `<dir>` or `tui <dir>` | the interactive TUI |
+| `full-auto <dir>` | the full supercut pipeline; `--pick N` takes the Nth-ranked phrase instead |
+| `say <dir> "<sentence>"` | build a sentence (`--captions`, `--no-verify`) |
 | `mine <dir>` | print the ranked candidates (`--captions` mines yt-dlp caption sidecars instead, no GPU) |
 | `cut <dir> "<phrase>"` | supercut a phrase of your choosing |
 | `transcribe <dir>` | just transcribe (cached; reruns skip finished videos) |
